@@ -1,0 +1,10 @@
+{
+	"autodeskProduct":	"Fusion360",
+	"type":	"script",
+	"author":	"Lentin Joseph",
+	"description":	{
+		"":	"Export a Fusion 360 model to a portable URDF file and STL meshes"
+	},
+	"supportedOS":	"windows|mac",
+	"editEnabled":	true
+}
