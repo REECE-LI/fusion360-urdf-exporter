@@ -100,7 +100,7 @@ frames:
   <child link="left_link_3"/>
   <parent_origin xyz="-0.072803 0.0 0.028171"/>
   <child_origin xyz="..."/>
-  <world_origin xyz="..."/>
+  <world_origin xyz="..." frame="root"/>
   <axis xyz="..." frame="parent"/>
   <world_axis xyz="..." frame="root"/>
 </loop_joint>
