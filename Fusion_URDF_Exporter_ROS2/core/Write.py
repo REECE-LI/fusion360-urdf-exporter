@@ -92,7 +92,7 @@ def _format_vector(values):
 
 
 def write_loop_joints(loop_joints, file_name):
-    """Append non-standard closed-chain constraints to the robot XML."""
+    """Append non-standard closed-chain metadata to the robot XML."""
     if not loop_joints:
         return
 
