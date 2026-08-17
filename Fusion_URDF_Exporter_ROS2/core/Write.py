@@ -103,6 +103,10 @@ def write_loop_joints(loop_joints, file_name):
                     'Fusion loop joint', joint_data['source_name']
                 )
             )
+            output.write(
+                '<!-- Non-standard URDF metadata: recreate this closure '
+                'as a simulator constraint; it is not a body joint. -->\n'
+            )
             joint = Element(
                 'loop_joint',
                 {
@@ -122,6 +126,12 @@ def write_loop_joints(loop_joints, file_name):
                 'child_origin',
                 {'xyz': _format_vector(joint_data['child_origin'])},
             )
+            if 'world_origin' in joint_data:
+                SubElement(
+                    joint,
+                    'world_origin',
+                    {'xyz': _format_vector(joint_data['world_origin'])},
+                )
             if joint_data['type'] in (
                 'revolute', 'continuous', 'prismatic'
             ):
@@ -133,6 +143,17 @@ def write_loop_joints(loop_joints, file_name):
                         'frame': 'parent',
                     },
                 )
+                if 'world_axis' in joint_data:
+                    SubElement(
+                        joint,
+                        'world_axis',
+                        {
+                            'xyz': _format_vector(
+                                joint_data['world_axis']
+                            ),
+                            'frame': 'root',
+                        },
+                    )
             if joint_data['type'] in ('revolute', 'prismatic'):
                 SubElement(
                     joint,

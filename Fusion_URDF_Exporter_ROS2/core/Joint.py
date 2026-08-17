@@ -135,24 +135,14 @@ def _normalise(vector, joint_name):
     ]
 
 
-def _transform_point(matrix, point):
-    """Apply a Fusion Matrix3D to a point."""
-    origin, x_axis, y_axis, z_axis = utils.matrix_parts(matrix)
-    return [
-        origin[index]
-        + point[0] * x_axis[index]
-        + point[1] * y_axis[index]
-        + point[2] * z_axis[index]
-        for index in range(3)
-    ]
-
-
 def _joint_geometry_frame(joint, is_as_built=False):
     """Return the physical joint frame in root-assembly coordinates.
 
-    Joints collected from the root component expose their new geometry
-    transforms in root-component coordinates.  A JointOrigin fallback is
-    local to its occurrence and is explicitly promoted to root coordinates.
+    Fusion's November 2024 transform properties are already the direct
+    assembly-space joint frames.  They must not be multiplied by an
+    occurrence transform a second time.  Older ``geometryOrOrigin*`` objects
+    expose local geometry, so only that fallback is promoted through the
+    owning occurrence's ``transform2`` chain.
     """
     if is_as_built:
         transform = getattr(joint, 'transform', None)
@@ -161,21 +151,33 @@ def _joint_geometry_frame(joint, is_as_built=False):
 
         geometry = getattr(joint, 'geometry', None)
         if geometry is not None:
+            # A JointOrigin/JointGeometry transform is the direct frame when
+            # available (the same API introduced for AsBuiltJoint.transform).
+            transform = getattr(geometry, 'transform', None)
+            if transform is not None:
+                return utils.matrix_parts(transform)
+
             try:
-                origin = geometry.origin.asArray()
-                return origin, None, None, None
+                frame = _legacy_geometry_frame(geometry)
+                occurrence = getattr(joint, 'occurrenceTwo', None)
+                if occurrence is None:
+                    occurrence = getattr(joint, 'occurrenceOne', None)
+                return utils.frame_in_root_frame(
+                    frame, occurrence
+                )
             except Exception:
                 pass
     else:
         # Component 2 is the URDF parent, so prefer its geometry frame.  The
         # two frames describe the same physical point for a valid Fusion
         # joint; geometryOneTransform is a compatibility fallback.
-        for attribute in ('geometryTwoTransform', 'geometryOneTransform'):
-            transform = getattr(joint, attribute, None)
+        for suffix in ('Two', 'One'):
+            transform = getattr(
+                joint, 'geometry{}Transform'.format(suffix), None
+            )
             if transform is not None:
                 return utils.matrix_parts(transform)
 
-        for suffix in ('Two', 'One'):
             geometry = getattr(
                 joint, 'geometryOrOrigin' + suffix, None
             )
@@ -183,42 +185,18 @@ def _joint_geometry_frame(joint, is_as_built=False):
             if geometry is None:
                 continue
 
-            # JointOrigin.transform is the authoritative fallback added with
-            # the geometry transform API. It is local to the occurrence.
+            # JointOrigin.transform is the direct frame provided by Fusion's
+            # newer API.  Do not apply occurrenceTwo.transform2 again.
             transform = getattr(geometry, 'transform', None)
             if transform is not None:
-                origin, x_axis, y_axis, z_axis = utils.matrix_parts(
-                    transform
-                )
-                if occurrence is not None:
-                    world_origin = _transform_point(
-                        occurrence.transform2, origin
-                    )
-                    _, occ_x, occ_y, occ_z = utils.matrix_parts(
-                        occurrence.transform2
-                    )
-
-                    def rotate(axis):
-                        return [
-                            axis[0] * occ_x[index]
-                            + axis[1] * occ_y[index]
-                            + axis[2] * occ_z[index]
-                            for index in range(3)
-                        ]
-
-                    return (
-                        world_origin,
-                        rotate(x_axis),
-                        rotate(y_axis),
-                        rotate(z_axis),
-                    )
-                return origin, x_axis, y_axis, z_axis
+                return utils.matrix_parts(transform)
 
             # Legacy JointGeometry has an origin but no complete transform.
-            # Joint objects owned by the root component return this point in
-            # root-component coordinates.
             try:
-                return geometry.origin.asArray(), None, None, None
+                frame = _legacy_geometry_frame(geometry)
+                return utils.frame_in_root_frame(
+                    frame, occurrence
+                )
             except Exception:
                 continue
 
@@ -229,7 +207,43 @@ def _joint_geometry_frame(joint, is_as_built=False):
     )
 
 
-def _motion_axis(joint, motion, geometry_axes):
+def _legacy_geometry_frame(geometry):
+    """Return a local frame for a pre-November-2024 joint geometry.
+
+    JointGeometry exposes its origin and, on Fusion versions that provide
+    them, primary/secondary/third axis vectors.  The latter correspond to
+    the Fusion joint triad's Z/X/Y axes respectively, so map them back to the
+    matrix X/Y/Z basis before the owning occurrence transform is applied.
+    """
+    origin = geometry.origin.asArray()
+    identity_axes = (
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    )
+
+    def vector_attribute(*names):
+        for name in names:
+            value = getattr(geometry, name, None)
+            if value is not None:
+                try:
+                    return value.asArray()
+                except AttributeError:
+                    continue
+        return None
+
+    x_axis = vector_attribute('xAxisVector', 'secondaryAxisVector')
+    y_axis = vector_attribute('yAxisVector', 'thirdAxisVector')
+    z_axis = vector_attribute('zAxisVector', 'primaryAxisVector')
+    return (
+        origin,
+        x_axis or identity_axes[0],
+        y_axis or identity_axes[1],
+        z_axis or identity_axes[2],
+    )
+
+
+def _motion_axis(joint, motion, geometry_axes, axis_occurrence=None):
     """Return the motion axis in root-assembly coordinates."""
     joint_type = motion.jointType
     joint_types = adsk.fusion.JointTypes
@@ -243,6 +257,7 @@ def _motion_axis(joint, motion, geometry_axes):
         return [0.0, 0.0, 0.0]
 
     directions = getattr(adsk.fusion, 'JointDirections', None)
+    direction_was_geometry_axis = False
     if directions is not None and all(geometry_axes):
         direction_to_axis = {
             getattr(directions, 'XAxisJointDirection', object()):
@@ -254,11 +269,19 @@ def _motion_axis(joint, motion, geometry_axes):
         }
         if direction in direction_to_axis:
             vector = direction_to_axis[direction]
+            direction_was_geometry_axis = True
+
+    if not direction_was_geometry_axis and axis_occurrence is not None:
+        vector = utils.vector_in_root_frame(vector, axis_occurrence)
 
     return _normalise(vector, joint.name)
 
 
-def _joint_motion(joint, geometry_axes=(None, None, None)):
+def _joint_motion(
+    joint,
+    geometry_axes=(None, None, None),
+    axis_occurrence=None,
+):
     """Map Fusion's locale-independent joint enum to URDF data."""
     joint_type = joint.jointMotion.jointType
     joint_types = adsk.fusion.JointTypes
@@ -269,7 +292,12 @@ def _joint_motion(joint, geometry_axes=(None, None, None)):
     if joint_type == joint_types.RigidJointType:
         urdf_type = 'fixed'
     elif joint_type == joint_types.RevoluteJointType:
-        axis = _motion_axis(joint, joint.jointMotion, geometry_axes)
+        axis = _motion_axis(
+            joint,
+            joint.jointMotion,
+            geometry_axes,
+            axis_occurrence,
+        )
         limits = joint.jointMotion.rotationLimits
         maximum_enabled = limits.isMaximumValueEnabled
         minimum_enabled = limits.isMinimumValueEnabled
@@ -288,7 +316,12 @@ def _joint_motion(joint, geometry_axes=(None, None, None)):
             urdf_type = 'continuous'
     elif joint_type == joint_types.SliderJointType:
         urdf_type = 'prismatic'
-        axis = _motion_axis(joint, joint.jointMotion, geometry_axes)
+        axis = _motion_axis(
+            joint,
+            joint.jointMotion,
+            geometry_axes,
+            axis_occurrence,
+        )
         limits = joint.jointMotion.slideLimits
         maximum_enabled = limits.isMaximumValueEnabled
         minimum_enabled = limits.isMinimumValueEnabled
@@ -400,23 +433,24 @@ def build_robot_model(root):
             continue
 
         (
-            world_origin_cm,
+            joint_origin_cm,
             frame_x,
             frame_y,
             frame_z,
         ) = _joint_geometry_frame(fusion_joint, is_as_built)
         motion = _joint_motion(
-            fusion_joint, (frame_x, frame_y, frame_z)
+            fusion_joint,
+            (frame_x, frame_y, frame_z),
+            axis_occurrence=fusion_joint.occurrenceTwo,
         )
         raw_joint = {
             'order': order,
             'source_name': logical_name(fusion_joint.name),
             'parent_index': parent_index,
             'child_index': child_index,
-            'world_origin_cm': world_origin_cm,
+            'joint_origin_cm': joint_origin_cm,
             **motion,
         }
-        raw_joint['world_axis'] = list(motion['axis'])
         raw_joints.append(raw_joint)
 
     named_roots = [
@@ -460,7 +494,7 @@ def build_robot_model(root):
         raw_joint['xyz'] = [
             round(value / 100.0, 6)
             for value in utils.point_in_reference_frame(
-                raw_joint['world_origin_cm'],
+                raw_joint['joint_origin_cm'],
                 root_occurrence.transform2,
             )
         ]
@@ -589,28 +623,37 @@ def build_robot_model(root):
             'xyz': raw_joint['xyz'],
         }
 
+    link_xyz_by_index = {
+        index: link['xyz'] for index, link in enumerate(links)
+    }
     loop_joints = []
     for raw_joint in omitted_joints:
-        parent_occurrence = top_occurrences[raw_joint['parent_index']]
-        child_occurrence = top_occurrences[raw_joint['child_index']]
-        parent_origin = utils.point_in_reference_frame(
-            raw_joint['world_origin_cm'],
-            parent_occurrence.transform2,
-        )
-        child_origin = utils.point_in_reference_frame(
-            raw_joint['world_origin_cm'],
-            child_occurrence.transform2,
-        )
+        # Link frames in this exporter are the zero-pose root-assembly
+        # frames: each mesh is baked into the root frame and every URDF
+        # origin has rpy="0 0 0".  Therefore a loop anchor is the physical
+        # joint point minus each link's root-frame origin.  Applying the
+        # inverse occurrence transform here would produce occurrence-local
+        # coordinates that do not match the URDF link frames.
+        parent_origin = [
+            round(
+                raw_joint['xyz'][axis]
+                - link_xyz_by_index[raw_joint['parent_index']][axis],
+                6,
+            )
+            for axis in range(3)
+        ]
+        child_origin = [
+            round(
+                raw_joint['xyz'][axis]
+                - link_xyz_by_index[raw_joint['child_index']][axis],
+                6,
+            )
+            for axis in range(3)
+        ]
         parent_axis = (
             [0.0, 0.0, 0.0]
             if raw_joint['type'] == 'fixed'
-            else _normalise(
-                utils.vector_in_reference_frame(
-                    raw_joint['world_axis'],
-                    parent_occurrence.transform2,
-                ),
-                raw_joint['source_name'],
-            )
+            else list(raw_joint['axis'])
         )
         loop_joints.append(
             {
@@ -629,14 +672,14 @@ def build_robot_model(root):
                 'parent': link_name_by_index[raw_joint['parent_index']],
                 'child': link_name_by_index[raw_joint['child_index']],
                 'parent_origin': [
-                    round(value / 100.0, 6)
-                    for value in parent_origin
+                    value for value in parent_origin
                 ],
                 'child_origin': [
-                    round(value / 100.0, 6)
-                    for value in child_origin
+                    value for value in child_origin
                 ],
                 'axis': parent_axis,
+                'world_origin': list(raw_joint['xyz']),
+                'world_axis': list(raw_joint['axis']),
                 'upper_limit': raw_joint['upper_limit'],
                 'lower_limit': raw_joint['lower_limit'],
             }

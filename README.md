@@ -67,7 +67,10 @@ configuration, transmissions, controllers, or sensors.
 URDF requires a tree, while Fusion can contain closed kinematic chains. The
 exporter writes the deterministic N−1 spanning-tree joints as standard
 `<joint>` elements. Remaining loop-closing joints are placed at the end of the
-same `robot.urdf` as custom `<loop_joint>` elements.
+same `robot.urdf` as custom `<loop_joint>` metadata. `<loop_joint>` is not a
+standard URDF element and a MuJoCo URDF importer will ignore it; do not add it
+as a second ordinary body joint. A MuJoCo-side converter must keep the tree
+joint and recreate the closure with equality/connect constraints.
 
 Before building the tree, the exporter prioritizes a redundant joint connected
 to `base_link` as the loop-closing edge. It removes that joint only when every
@@ -82,8 +85,14 @@ Joints use their joint transform, and older Fusion versions fall back to the
 joint geometry or Joint Origin transform. The exporter does not derive the
 joint point from the relative component transform.
 
-Each `<loop_joint>` stores the same physical joint point in both link-local
-coordinate systems:
+The November 2024 `*Transform` values are already direct assembly-space
+frames; the exporter does not apply an occurrence transform to them again.
+Only the legacy `geometryOrOrigin*` point and axis vectors are promoted using
+the owning occurrence's `transform2`/`assemblyContext` chain. This distinction
+prevents a loop anchor from being rotated or translated twice.
+
+Each `<loop_joint>` stores the same physical joint point in both exporter link
+frames:
 
 ```xml
 <loop_joint name="闭环关节" type="revolute">
@@ -91,15 +100,27 @@ coordinate systems:
   <child link="left_link_3"/>
   <parent_origin xyz="-0.072803 0.0 0.028171"/>
   <child_origin xyz="..."/>
+  <world_origin xyz="..."/>
   <axis xyz="..." frame="parent"/>
+  <world_axis xyz="..." frame="root"/>
 </loop_joint>
 ```
 
-`parent_origin` is `R_WPᵀ (p_WJ - t_WP)` and `child_origin` is
-`R_WCᵀ (p_WJ - t_WC)`, converted from Fusion centimetres to metres. The axis
-is expressed in the parent link frame. `<loop_joint>` is custom constraint
-data, not part of the URDF specification. A MuJoCo-side
-preprocessor or importer can inspect it without requiring a second file.
+The exporter bakes each STL into the root-assembly zero-pose frame and keeps
+link `rpy` at zero. Therefore `parent_origin` and `child_origin` are computed
+as `p_WJ - p_WP` and `p_WJ - p_WC`, respectively, in the same root-oriented
+link frames. They must not be recomputed with the inverse Fusion occurrence
+transforms. `world_origin` and `world_axis` preserve the root-frame physical
+joint data for a converter or diagnostic tool. The `axis` value is expressed
+in the parent link frame and is the same root-frame axis used by ordinary URDF
+joints.
+
+For MuJoCo, use the two origins as the anchors of an equality/connect
+constraint and retain only the spanning-tree joint in the body hierarchy.
+Mesh conversion (for example, high-face-count STL to MSH) and disabling
+robot-self convex-hull contacts are importer/runtime choices, not URDF
+syntax; this exporter continues to provide high-refinement STL for portable
+URDF use.
 
 Fusion uses centimetres internally. The exporter converts positions to metres,
 inertia from kg/cm² to kg/m², and obtains mass and centre-of-mass values from

@@ -19,7 +19,7 @@ from .core import Link, Joint, Write
 
 
 def build_success_message(save_dir, robot_name, loop_joints):
-    """Build the completion dialog text, including loop-constraint data."""
+    """Build completion text, including non-standard loop metadata."""
     message = (
         'Successfully created:\n'
         + os.path.join(save_dir, robot_name + '.urdf')
@@ -31,7 +31,8 @@ def build_success_message(save_dir, robot_name, loop_joints):
             joint['source_name'] for joint in loop_joints
         ]
         message += (
-            '\n\nClosed-chain constraints embedded in URDF:\n'
+            '\n\nClosed-chain metadata (for MuJoCo '
+            'equality/connect conversion):\n'
             + '\n'.join(closed_chain_names)
         )
     return message

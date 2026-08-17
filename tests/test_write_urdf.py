@@ -83,11 +83,19 @@ class PhysicalProperties:
 
 
 class Occurrence:
-    def __init__(self, name, full_path=None, mass=1.0, transform=None):
+    def __init__(
+        self,
+        name,
+        full_path=None,
+        mass=1.0,
+        transform=None,
+        assembly_context=None,
+    ):
         self.name = name
         self.fullPathName = full_path or name
         self.transform = transform or Transform()
         self.transform2 = self.transform
+        self.assemblyContext = assembly_context
         self.component = types.SimpleNamespace(name=name)
         self.properties = PhysicalProperties(mass)
 
@@ -152,6 +160,58 @@ class Root:
 
 
 class RobotModelTest(unittest.TestCase):
+    def test_nested_occurrence_transform_is_composed_to_root(self):
+        assembly = Occurrence(
+            'subassembly',
+            transform=Transform(translation=(10, 0, 0)),
+        )
+        nested = Occurrence(
+            'part',
+            transform=Transform(translation=(0, 5, 0)),
+            assembly_context=assembly,
+        )
+
+        frame = utils.frame_in_root_frame(
+            (
+                [1, 2, 3],
+                [1, 0, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+            ),
+            nested,
+        )
+
+        self.assertEqual(frame[0], [11, 7, 3])
+
+    def test_custom_motion_axis_is_promoted_from_parent_occurrence(self):
+        base = Occurrence('base_link')
+        parent = Occurrence(
+            'parent',
+            transform=Transform(
+                x_axis=(0, 1, 0),
+                y_axis=(-1, 0, 0),
+                z_axis=(0, 0, 1),
+            ),
+        )
+        child = Occurrence('child')
+        model = Joint.build_robot_model(
+            Root(
+                [base, parent, child],
+                [
+                    FusionJoint('固定', parent, base),
+                    FusionJoint(
+                        '轴',
+                        child,
+                        parent,
+                        joint_type=1,
+                        axis=(1, 0, 0),
+                    ),
+                ],
+            )
+        )
+
+        self.assertEqual(model['joints']['轴']['axis'], [0.0, 1.0, 0.0])
+
     def test_exact_base_link_is_preferred(self):
         base = Occurrence('base_link')
         child = Occurrence('child')
@@ -326,7 +386,8 @@ class RobotModelTest(unittest.TestCase):
                         '连接',
                         child,
                         base,
-                        position=(10, 30, 0),
+                        # JointOrigin coordinates are local to Component 2.
+                        position=(10, 0, 0),
                     )
                 ],
             )
@@ -523,6 +584,8 @@ class RobotModelTest(unittest.TestCase):
                         # transform must take precedence.
                         position=(-0.9631, 0, 0),
                         geometry_transform=Transform(
+                            # Component 2 is the base occurrence, so this
+                            # local frame is already the robot root frame.
                             translation=(-7.2803, 0, 2.8171)
                         ),
                     ),
@@ -535,10 +598,10 @@ class RobotModelTest(unittest.TestCase):
             loop['parent_origin'], [-0.072803, 0.0, 0.028171]
         )
         self.assertEqual(
-            loop['child_origin'], [-0.022803, 0.0, 0.008171]
+            loop['child_origin'], [-0.072803, 0.0, 0.028171]
         )
 
-    def test_loop_origins_apply_each_occurrence_inverse_rotation(self):
+    def test_loop_origins_use_exported_link_frames_not_occurrence_frames(self):
         base = Occurrence('base_link')
         middle = Occurrence('middle')
         last = Occurrence(
@@ -554,7 +617,9 @@ class RobotModelTest(unittest.TestCase):
             Root(
                 [base, middle, last],
                 [
-                    FusionJoint('A', middle, base),
+                    FusionJoint(
+                        'A', middle, base, position=(10, 0, 0)
+                    ),
                     FusionJoint('B', last, middle),
                     FusionJoint(
                         '闭环',
@@ -562,6 +627,9 @@ class RobotModelTest(unittest.TestCase):
                         last,
                         joint_type=1,
                         geometry_transform=Transform(
+                            # geometryTwoTransform is already in the root
+                            # assembly frame; applying last.transform2 again
+                            # would rotate this physical point incorrectly.
                             translation=(10, 30, 0)
                         ),
                     ),
@@ -570,8 +638,37 @@ class RobotModelTest(unittest.TestCase):
         )
 
         loop = model['loop_joints'][0]
-        self.assertEqual(loop['parent_origin'], [0.1, 0.0, 0.0])
+        self.assertEqual(loop['parent_origin'], [0.1, 0.3, 0.0])
         self.assertEqual(loop['child_origin'], [0.1, 0.3, 0.0])
+
+    def test_geometry_transform_is_not_promoted_twice(self):
+        base = Occurrence('base_link')
+        child = Occurrence(
+            'child',
+            transform=Transform(
+                translation=(10, 20, 0),
+                x_axis=(0, 1, 0),
+                y_axis=(-1, 0, 0),
+                z_axis=(0, 0, 1),
+            ),
+        )
+        model = Joint.build_robot_model(
+            Root(
+                [base, child],
+                [
+                    FusionJoint(
+                        '连接',
+                        child,
+                        base,
+                        geometry_transform=Transform(
+                            translation=(10, 30, 0)
+                        ),
+                    )
+                ],
+            )
+        )
+
+        self.assertEqual(model['links'][1]['xyz'], [0.1, 0.3, 0.0])
 
     def test_unsupported_joint_type_is_rejected(self):
         first = Occurrence('first')
@@ -717,16 +814,25 @@ class WriteUrdfTest(unittest.TestCase):
         root = ElementTree.fromstring(text)
         self.assertEqual(len(root.findall('joint')), 2)
         self.assertIn('<!-- Fusion loop joint: 旋转 5 -->', text)
+        self.assertIn(
+            '<!-- Non-standard URDF metadata: recreate this closure',
+            text,
+        )
         loop = root.find("./loop_joint[@name='旋转_5']")
         self.assertEqual(
             loop.find('parent_origin').attrib['xyz'],
-            '0.1 0.05 0.0',
+            '-0.05 0.05 0.0',
         )
         self.assertEqual(
             loop.find('child_origin').attrib['xyz'],
-            '0.1 0.1 0.0',
+            '0.1 0.15 0.0',
+        )
+        self.assertEqual(
+            loop.find('world_origin').attrib['xyz'],
+            '0.1 0.15 0.0',
         )
         self.assertEqual(loop.find('axis').attrib['frame'], 'parent')
+        self.assertEqual(loop.find('world_axis').attrib['frame'], 'root')
 
 
 class ExportStlTest(unittest.TestCase):
@@ -903,7 +1009,8 @@ class SuccessMessageTest(unittest.TestCase):
         self.assertIn('/tmp/robot/robot.urdf', message)
         self.assertNotIn('robot.loop_joints.xml', message)
         self.assertIn(
-            'Closed-chain constraints embedded in URDF', message
+            'Closed-chain metadata (for MuJoCo equality/connect conversion)',
+            message,
         )
         self.assertIn('旋转 5', message)
         self.assertIn('刚性闭环', message)
@@ -914,7 +1021,8 @@ class SuccessMessageTest(unittest.TestCase):
         )
 
         self.assertNotIn(
-            'Closed-chain constraints embedded in URDF', message
+            'Closed-chain metadata (for MuJoCo equality/connect conversion)',
+            message,
         )
 
 
