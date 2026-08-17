@@ -190,11 +190,11 @@ class RobotModelTest(unittest.TestCase):
             [link['source_name'] for link in model['links']],
             ['base_link', '左侧刚性件', '旋转臂'],
         )
-        self.assertEqual(list(model['joints']), ['joint_1', 'joint_2'])
-        self.assertEqual(model['joints']['joint_1']['type'], 'fixed')
-        self.assertEqual(model['joints']['joint_1']['source_name'], '刚性')
-        self.assertEqual(model['joints']['joint_2']['type'], 'continuous')
-        self.assertEqual(model['joints']['joint_2']['source_name'], '旋转')
+        self.assertEqual(list(model['joints']), ['刚性', '旋转'])
+        self.assertEqual(model['joints']['刚性']['type'], 'fixed')
+        self.assertEqual(model['joints']['刚性']['source_name'], '刚性')
+        self.assertEqual(model['joints']['旋转']['type'], 'continuous')
+        self.assertEqual(model['joints']['旋转']['source_name'], '旋转')
 
     def test_unique_graph_root_is_used_when_base_name_is_absent(self):
         root_link = Occurrence('中文机架 v1:1')
@@ -209,9 +209,9 @@ class RobotModelTest(unittest.TestCase):
         self.assertEqual(model['links'][0]['name'], '子零件')
         self.assertEqual(model['links'][1]['name'], '中文机架')
         self.assertEqual(
-            model['joints']['joint_1']['parent'], '中文机架'
+            model['joints']['固定']['parent'], '中文机架'
         )
-        self.assertEqual(model['joints']['joint_1']['child'], '子零件')
+        self.assertEqual(model['joints']['固定']['child'], '子零件')
 
     def test_single_top_level_subassembly_needs_no_joint(self):
         only = Occurrence('完整机器人 v7:1')
@@ -237,6 +237,31 @@ class RobotModelTest(unittest.TestCase):
         self.assertEqual(
             [link['name'] for link in model['links']],
             ['base_link', '左_臂', '左_臂_2'],
+        )
+
+    def test_joint_names_follow_fusion_names_and_are_disambiguated(self):
+        base = Occurrence('base_link')
+        first = Occurrence('first')
+        second = Occurrence('second')
+        third = Occurrence('third')
+        model = Joint.build_robot_model(
+            Root(
+                [base, first, second, third],
+                [
+                    FusionJoint('左/关节 v4:1', first, base),
+                    FusionJoint('左 关节', second, first),
+                    FusionJoint('左 关节', third, second),
+                ],
+            )
+        )
+
+        self.assertEqual(
+            list(model['joints']),
+            ['左_关节', '左_关节_2', '左_关节_3'],
+        )
+        self.assertEqual(
+            [joint['source_name'] for joint in model['joints'].values()],
+            ['左/关节', '左 关节', '左 关节'],
         )
 
     def test_internal_subassembly_joint_is_folded_away(self):
@@ -277,7 +302,7 @@ class RobotModelTest(unittest.TestCase):
             )
         )
 
-        joint = model['joints']['joint_1']
+        joint = model['joints']['滑动']
         self.assertEqual(joint['type'], 'prismatic')
         self.assertEqual(joint['lower_limit'], -0.1)
         self.assertEqual(joint['upper_limit'], 0.25)
@@ -410,13 +435,13 @@ class RobotModelTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            first_model['joints']['joint_1']['source_name'], '旋转 4'
+            first_model['joints']['旋转_4']['source_name'], '旋转 4'
         )
         self.assertEqual(
             first_model['loop_joints'][0]['source_name'], '旋转 5'
         )
         self.assertEqual(
-            second_model['joints']['joint_1']['source_name'], '旋转 5'
+            second_model['joints']['旋转_5']['source_name'], '旋转 5'
         )
         self.assertEqual(
             second_model['loop_joints'][0]['source_name'], '旋转 4'
@@ -469,7 +494,7 @@ class RobotModelTest(unittest.TestCase):
         )
         self.assertEqual(
             [joint['name'] for joint in model['loop_joints']],
-            ['joint_3', 'joint_4'],
+            ['树关节_B', '较晚的闭环'],
         )
         self.assertEqual(
             [joint['source_name'] for joint in model['loop_joints']],
@@ -630,7 +655,7 @@ class WriteUrdfTest(unittest.TestCase):
             {'底座', '旋转臂'},
         )
         self.assertEqual(
-            root.find("./joint[@name='joint_1']").attrib['type'],
+            root.find("./joint[@name='旋转']").attrib['type'],
             'revolute',
         )
         self.assertEqual(
@@ -692,7 +717,7 @@ class WriteUrdfTest(unittest.TestCase):
         root = ElementTree.fromstring(text)
         self.assertEqual(len(root.findall('joint')), 2)
         self.assertIn('<!-- Fusion loop joint: 旋转 5 -->', text)
-        loop = root.find("./loop_joint[@name='joint_3']")
+        loop = root.find("./loop_joint[@name='旋转_5']")
         self.assertEqual(
             loop.find('parent_origin').attrib['xyz'],
             '0.1 0.05 0.0',

@@ -27,6 +27,30 @@ def safe_link_name(name):
     return cleaned or 'link'
 
 
+def safe_joint_name(name):
+    """Create a portable URDF joint name from a Fusion joint name.
+
+    Fusion joint names are user-facing labels, so they may contain spaces,
+    path separators, or the same instance suffix used by occurrence names.
+    Keep the meaningful Unicode text, remove that suffix, and use the same
+    conservative character cleanup as link names before writing XML.
+    """
+    cleaned = UNSAFE_LINK_CHARACTERS.sub('_', logical_name(name))
+    cleaned = cleaned.strip('._')
+    return cleaned or 'joint'
+
+
+def _unique_name(base_name, used_names):
+    """Return a case-insensitively unique name with a numeric suffix."""
+    candidate = base_name
+    suffix = 2
+    while candidate.casefold() in used_names:
+        candidate = '{}_{}'.format(base_name, suffix)
+        suffix += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+
 class Joint:
     def __init__(
         self,
@@ -528,14 +552,8 @@ def build_robot_model(root):
     link_name_by_index = {}
     used_names = set()
     for index, source_name in enumerate(source_names):
-        base_name = safe_link_name(source_name)
-        link_name = base_name
-        suffix = 2
-        while link_name.casefold() in used_names:
-            link_name = '{}_{}'.format(base_name, suffix)
-            suffix += 1
+        link_name = _unique_name(safe_link_name(source_name), used_names)
         link_name_by_index[index] = link_name
-        used_names.add(link_name.casefold())
 
     incoming_by_child = {
         raw_joint['child_index']: raw_joint
@@ -554,8 +572,12 @@ def build_robot_model(root):
         )
 
     joints = {}
-    for number, raw_joint in enumerate(selected_joints, start=1):
-        joint_name = 'joint_{}'.format(number)
+    used_joint_names = set()
+    for raw_joint in selected_joints:
+        joint_name = _unique_name(
+            safe_joint_name(raw_joint['source_name']),
+            used_joint_names,
+        )
         joints[joint_name] = {
             'source_name': raw_joint['source_name'],
             'type': raw_joint['type'],
@@ -568,9 +590,7 @@ def build_robot_model(root):
         }
 
     loop_joints = []
-    for number, raw_joint in enumerate(
-        omitted_joints, start=len(selected_joints) + 1
-    ):
+    for raw_joint in omitted_joints:
         parent_occurrence = top_occurrences[raw_joint['parent_index']]
         child_occurrence = top_occurrences[raw_joint['child_index']]
         parent_origin = utils.point_in_reference_frame(
@@ -594,7 +614,10 @@ def build_robot_model(root):
         )
         loop_joints.append(
             {
-                'name': 'joint_{}'.format(number),
+                'name': _unique_name(
+                    safe_joint_name(raw_joint['source_name']),
+                    used_joint_names,
+                ),
                 'source_name': raw_joint['source_name'],
                 'type': raw_joint['type'],
                 'parent_source_name': source_names[

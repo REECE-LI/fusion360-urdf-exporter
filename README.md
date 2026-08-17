@@ -54,8 +54,11 @@ configuration, transmissions, controllers, or sensors.
   preserved; spaces, slashes, colons, and parentheses become underscores.
   Names that become duplicates after removing the version suffix receive
   `_2`, `_3`, and so on.
-- Joint names continue to use `joint_1`, `joint_2`, etc. Fusion joint names,
-  including names such as `旋转` and `刚性`, are retained in URDF comments.
+- URDF joint names follow the Fusion joint names. The trailing Fusion suffix
+  such as `v4:1` is removed; spaces, slashes, colons, and parentheses become
+  underscores. Duplicate names receive `_2`, `_3`, and so on. The original
+  Fusion spelling is also retained in the XML comment, including Chinese
+  names such as `旋转` and `刚性`.
 - Disconnected assemblies, ambiguous roots, incorrectly directed links, and
   unsupported joint types are rejected before output begins.
 
@@ -83,7 +86,7 @@ Each `<loop_joint>` stores the same physical joint point in both link-local
 coordinate systems:
 
 ```xml
-<loop_joint name="joint_10" type="revolute">
+<loop_joint name="闭环关节" type="revolute">
   <parent link="base_link"/>
   <child link="left_link_3"/>
   <parent_origin xyz="-0.072803 0.0 0.028171"/>
