@@ -50,15 +50,16 @@ configuration, transmissions, controllers, or sensors.
 - Revolute and Slider limits must either have both bounds enabled or neither
   bound enabled.
 - URDF link names and STL filenames follow the Fusion top-level occurrence
-  names. A trailing Fusion suffix such as ` v4:1` is removed. Chinese names are
-  preserved; spaces, slashes, colons, and parentheses become underscores.
-  Names that become duplicates after removing the version suffix receive
-  `_2`, `_3`, and so on.
-- URDF joint names follow the Fusion joint names. The trailing Fusion suffix
-  such as `v4:1` is removed; spaces, slashes, colons, and parentheses become
-  underscores. Duplicate names receive `_2`, `_3`, and so on. The original
-  Fusion spelling is also retained in the XML comment, including Chinese
-  names such as `旋转` and `刚性`.
+  names. A trailing Fusion suffix such as ` v4:1` or `:1` is removed. Chinese
+  names are preserved; spaces, slashes, colons, and parentheses become
+  underscores. Names that become duplicates after removing the instance
+  suffix receive `_2`, `_3`, and so on. Each link and joint also gets a
+  separate XML comment showing the final URDF name.
+- URDF joint names follow the Fusion joint names. A trailing Fusion suffix
+  such as `v4:1` or `:1` is removed; spaces, slashes, colons, and parentheses
+  become underscores. Duplicate names receive `_2`, `_3`, and so on. The
+  original cleaned Fusion spelling and final URDF name are both retained in
+  adjacent XML comments, including Chinese names such as `旋转` and `刚性`.
 - Disconnected assemblies, ambiguous roots, incorrectly directed links, and
   unsupported joint types are rejected before output begins.
 

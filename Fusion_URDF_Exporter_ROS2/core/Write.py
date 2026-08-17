@@ -44,6 +44,9 @@ def write_link_urdf(links, links_xyz_dict, file_name, inertial_dict):
             urdf_file.write(
                 _xml_comment('Fusion component', link_data['source_name'])
             )
+            urdf_file.write(
+                _xml_comment('URDF link', link_data['name'])
+            )
             urdf_file.write(link.link_xml)
             urdf_file.write('\n')
 
@@ -83,6 +86,7 @@ def write_joint_urdf(joints_dict, links_xyz_dict, file_name):
             urdf_file.write(
                 _xml_comment('Fusion joint', joint_data['source_name'])
             )
+            urdf_file.write(_xml_comment('URDF joint', name))
             urdf_file.write(joint.joint_xml)
             urdf_file.write('\n')
 
@@ -102,6 +106,9 @@ def write_loop_joints(loop_joints, file_name):
                 _xml_comment(
                     'Fusion loop joint', joint_data['source_name']
                 )
+            )
+            output.write(
+                _xml_comment('URDF loop metadata', joint_data['name'])
             )
             output.write(
                 '<!-- Non-standard URDF metadata: recreate this closure '

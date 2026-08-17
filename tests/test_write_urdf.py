@@ -256,6 +256,19 @@ class RobotModelTest(unittest.TestCase):
         self.assertEqual(model['joints']['旋转']['type'], 'continuous')
         self.assertEqual(model['joints']['旋转']['source_name'], '旋转')
 
+    def test_plain_occurrence_instance_suffix_is_removed(self):
+        base = Occurrence('base_link:1')
+        child = Occurrence('left_link_1:2')
+        model = Joint.build_robot_model(
+            Root([base, child], [FusionJoint('旋转:3', child, base)])
+        )
+
+        self.assertEqual(
+            [link['name'] for link in model['links']],
+            ['base_link', 'left_link_1'],
+        )
+        self.assertEqual(list(model['joints']), ['旋转'])
+
     def test_unique_graph_root_is_used_when_base_name_is_absent(self):
         root_link = Occurrence('中文机架 v1:1')
         child = Occurrence('子零件 v1:1')
@@ -780,7 +793,9 @@ class WriteUrdfTest(unittest.TestCase):
 
         self.assertEqual(root.attrib['name'], 'robot')
         self.assertIn('<!-- Fusion component: 底座 -->', text)
+        self.assertIn('<!-- URDF link: 底座 -->', text)
         self.assertIn('<!-- Fusion joint: 旋转 -->', text)
+        self.assertIn('<!-- URDF joint: 旋转 -->', text)
         self.assertEqual(
             {link.attrib['name'] for link in root.findall('link')},
             {'底座', '旋转臂'},

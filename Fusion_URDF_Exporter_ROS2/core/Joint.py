@@ -11,13 +11,19 @@ import adsk.fusion
 from ..utils import utils
 
 
-VERSION_SUFFIX = re.compile(r'\s+v\d+:\d+$', re.IGNORECASE)
+# Fusion occurrence names commonly end in either ``vN:M`` (document version
+# plus instance) or just ``:M`` (the instance suffix).  Both are metadata,
+# not part of the user-authored component/joint name.
+VERSION_SUFFIX = re.compile(
+    r'(?:\s+v\d+)?(?::\d+)$',
+    re.IGNORECASE,
+)
 UNSAFE_LINK_CHARACTERS = re.compile(r'[\s:/\\()]+')
 
 
 def logical_name(name):
     """Remove Fusion's trailing version and occurrence suffix."""
-    return VERSION_SUFFIX.sub('', name).strip()
+    return VERSION_SUFFIX.sub('', str(name or '').strip()).strip()
 
 
 def safe_link_name(name):
