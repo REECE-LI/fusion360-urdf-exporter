@@ -670,6 +670,40 @@ class RobotModelTest(unittest.TestCase):
 
         self.assertEqual(model['links'][1]['xyz'], [0.1, 0.3, 0.0])
 
+    def test_loop_metadata_separates_root_and_base_link_frames(self):
+        base = Occurrence(
+            'base_link',
+            transform=Transform(
+                translation=(10, 20, 0),
+                x_axis=(0, 1, 0),
+                y_axis=(-1, 0, 0),
+                z_axis=(0, 0, 1),
+            ),
+        )
+        child = Occurrence('child')
+        model = Joint.build_robot_model(
+            Root(
+                [base, child],
+                [
+                    FusionJoint('树关节', child, base),
+                    FusionJoint(
+                        '闭环',
+                        child,
+                        base,
+                        joint_type=1,
+                        geometry_transform=Transform(
+                            translation=(10, 20, 0)
+                        ),
+                    ),
+                ],
+            )
+        )
+
+        loop = model['loop_joints'][0]
+        self.assertEqual(loop['parent_origin'], [0.0, 0.0, 0.0])
+        self.assertEqual(loop['child_origin'], [0.0, 0.0, 0.0])
+        self.assertEqual(loop['world_origin'], [0.1, 0.2, 0.0])
+
     def test_unsupported_joint_type_is_rejected(self):
         first = Occurrence('first')
         second = Occurrence('second')
@@ -831,6 +865,7 @@ class WriteUrdfTest(unittest.TestCase):
             loop.find('world_origin').attrib['xyz'],
             '0.1 0.15 0.0',
         )
+        self.assertEqual(loop.find('world_origin').attrib['frame'], 'root')
         self.assertEqual(loop.find('axis').attrib['frame'], 'parent')
         self.assertEqual(loop.find('world_axis').attrib['frame'], 'root')
 

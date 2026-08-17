@@ -448,7 +448,8 @@ def build_robot_model(root):
             'source_name': logical_name(fusion_joint.name),
             'parent_index': parent_index,
             'child_index': child_index,
-            'joint_origin_cm': joint_origin_cm,
+            # Physical joint point in the Fusion root design frame.
+            'root_origin_cm': list(joint_origin_cm),
             **motion,
         }
         raw_joints.append(raw_joint)
@@ -494,10 +495,13 @@ def build_robot_model(root):
         raw_joint['xyz'] = [
             round(value / 100.0, 6)
             for value in utils.point_in_reference_frame(
-                raw_joint['joint_origin_cm'],
+                raw_joint['root_origin_cm'],
                 root_occurrence.transform2,
             )
         ]
+        # Preserve the direct Fusion root-frame axis before converting it to
+        # the base link frame used by standard URDF joints.
+        raw_joint['root_axis'] = list(raw_joint['axis'])
         if raw_joint['type'] != 'fixed':
             raw_joint['axis'] = _normalise(
                 utils.vector_in_reference_frame(
@@ -678,8 +682,11 @@ def build_robot_model(root):
                     value for value in child_origin
                 ],
                 'axis': parent_axis,
-                'world_origin': list(raw_joint['xyz']),
-                'world_axis': list(raw_joint['axis']),
+                'world_origin': [
+                    round(value / 100.0, 6)
+                    for value in raw_joint['root_origin_cm']
+                ],
+                'world_axis': list(raw_joint['root_axis']),
                 'upper_limit': raw_joint['upper_limit'],
                 'lower_limit': raw_joint['lower_limit'],
             }

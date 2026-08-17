@@ -130,7 +130,10 @@ def write_loop_joints(loop_joints, file_name):
                 SubElement(
                     joint,
                     'world_origin',
-                    {'xyz': _format_vector(joint_data['world_origin'])},
+                    {
+                        'xyz': _format_vector(joint_data['world_origin']),
+                        'frame': 'root',
+                    },
                 )
             if joint_data['type'] in (
                 'revolute', 'continuous', 'prismatic'

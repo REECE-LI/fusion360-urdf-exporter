@@ -110,10 +110,10 @@ The exporter bakes each STL into the root-assembly zero-pose frame and keeps
 link `rpy` at zero. Therefore `parent_origin` and `child_origin` are computed
 as `p_WJ - p_WP` and `p_WJ - p_WC`, respectively, in the same root-oriented
 link frames. They must not be recomputed with the inverse Fusion occurrence
-transforms. `world_origin` and `world_axis` preserve the root-frame physical
-joint data for a converter or diagnostic tool. The `axis` value is expressed
-in the parent link frame and is the same root-frame axis used by ordinary URDF
-joints.
+transforms. `world_origin frame="root"` and `world_axis frame="root"` preserve
+the physical joint data in Fusion's root design frame for a converter or
+diagnostic tool. The `axis frame="parent"` value is expressed in the parent
+link frame and is the same base-link-frame axis used by ordinary URDF joints.
 
 For MuJoCo, use the two origins as the anchors of an equality/connect
 constraint and retain only the spanning-tree joint in the body hierarchy.
